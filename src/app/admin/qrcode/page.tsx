@@ -1,6 +1,6 @@
 // ===================================================
 // FILE: page.tsx
-// PATH: /restaurant-qr-order/src/app/(admin)/qrcode/page.tsx
+// PATH: /restaurant-qr-order/src/app/admin/qrcode/page.tsx
 // DESCRIPTION: หน้าแสดงและพิมพ์ QR Code ของโต๊ะ
 // ===================================================
 
@@ -13,6 +13,7 @@ interface Table {
   name: string;
   qrToken: string;
   isActive: boolean;
+  updatedAt: string; // ✅ เพิ่ม field นี้
 }
 
 export default function QRCodePage() {
@@ -20,6 +21,7 @@ export default function QRCodePage() {
   const [loading, setLoading] = useState(true);
   const [selectedTables, setSelectedTables] = useState<number[]>([]);
   const [qrSize, setQrSize] = useState(200);
+  const [refreshKey, setRefreshKey] = useState(Date.now()); // ✅ เพิ่ม state สำหรับ force refresh
 
   useEffect(() => {
     fetchTables();
@@ -32,6 +34,7 @@ export default function QRCodePage() {
       if (data.success) {
         setTables(data.data);
         setSelectedTables(data.data.map((t: Table) => t.id));
+        setRefreshKey(Date.now()); // ✅ Force refresh QR images
       }
     } catch (error) {
       console.error('Fetch tables error:', error);
@@ -60,9 +63,16 @@ export default function QRCodePage() {
     window.print();
   };
 
+  // ✅ เพิ่มปุ่ม refresh
+  const handleRefresh = () => {
+    setLoading(true);
+    fetchTables();
+  };
+
   const downloadQR = async (table: Table) => {
     try {
-      const res = await fetch(`/api/tables/${table.id}/qrcode?size=500`);
+      // ✅ เพิ่ม timestamp เพื่อ bypass cache
+      const res = await fetch(`/api/tables/${table.id}/qrcode?size=500&t=${Date.now()}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -93,9 +103,15 @@ export default function QRCodePage() {
           <h1 className="page-title">QR Code</h1>
           <p className="text-gray-500 mt-1">สร้างและพิมพ์ QR Code สำหรับโต๊ะ</p>
         </div>
-        <button onClick={handlePrint} className="btn-primary">
-          🖨️ พิมพ์ QR Code
-        </button>
+        <div className="flex gap-2">
+          {/* ✅ เพิ่มปุ่ม Refresh */}
+          <button onClick={handleRefresh} className="btn-outline">
+            🔄 รีเฟรช
+          </button>
+          <button onClick={handlePrint} className="btn-primary">
+            🖨️ พิมพ์ QR Code
+          </button>
+        </div>
       </div>
 
       {/* Controls - Hide on print */}
@@ -150,10 +166,10 @@ export default function QRCodePage() {
               key={table.id}
               className="card p-6 text-center print:break-inside-avoid print:border print:border-gray-300"
             >
-              {/* QR Code */}
+              {/* QR Code - ✅ เพิ่ม qrToken และ refreshKey เป็น cache busting */}
               <div className="flex justify-center mb-4">
                 <img
-                  src={`/api/tables/${table.id}/qrcode?size=${qrSize}`}
+                  src={`/api/tables/${table.id}/qrcode?size=${qrSize}&token=${table.qrToken}&t=${refreshKey}`}
                   alt={`QR Code ${table.name}`}
                   width={qrSize}
                   height={qrSize}
