@@ -1,21 +1,32 @@
 // ===================================================
 // FILE: layout.tsx
 // PATH: /restaurant-qr-order/src/app/admin/layout.tsx
-// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด
+// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด (พร้อม Notification Bell)
 // ===================================================
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Swal from 'sweetalert2';
+import { formatRelativeTime, formatCurrency, orderStatusLabels } from '@/lib/utils';
 
 interface AdminData {
   adminId: number;
   username: string;
   name: string;
   role: string;
+}
+
+interface OrderNotification {
+  id: number;
+  orderNumber: string;
+  status: string;
+  totalAmount: string;
+  createdAt: string;
+  table: { id: number; name: string };
+  orderItems: { id: number; quantity: number; menuItem: { name: string } }[];
 }
 
 const menuItems = [
@@ -99,12 +110,46 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [admin, setAdmin] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // ✅ State สำหรับ Notification
+  const [notifications, setNotifications] = useState<OrderNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastNotificationCountRef = useRef<number>(0);
 
-  // ✅ เช็คว่าเป็นหน้า login หรือไม่
   const isLoginPage = pathname === '/admin/login';
 
+  // ✅ Fetch pending orders สำหรับ notification
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch('/api/orders?status=PENDING&limit=10');
+      const result = await res.json();
+      
+      if (result.success) {
+        const newCount = result.data.length;
+        
+        // เล่นเสียงถ้ามี notification ใหม่
+        if (newCount > lastNotificationCountRef.current && lastNotificationCountRef.current !== 0) {
+          playNotificationSound();
+        }
+        
+        lastNotificationCountRef.current = newCount;
+        setNotifications(result.data);
+      }
+    } catch (error) {
+      console.error('Fetch notifications error:', error);
+    }
+  }, []);
+
+  const playNotificationSound = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+  };
+
   useEffect(() => {
-    // ✅ ถ้าเป็นหน้า login ไม่ต้องเช็ค session
     if (isLoginPage) {
       setLoading(false);
       return;
@@ -112,6 +157,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     checkSession();
   }, [isLoginPage]);
+
+  // ✅ Poll notifications
+  useEffect(() => {
+    if (isLoginPage || !admin) return;
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 5000);
+    return () => clearInterval(interval);
+  }, [isLoginPage, admin, fetchNotifications]);
+
+  // ✅ Click outside to close notification dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const checkSession = async () => {
     try {
@@ -150,12 +216,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   };
 
-  // ✅ ถ้าเป็นหน้า login แสดงแค่ children (ไม่มี sidebar)
+  // ✅ ไปหน้า orders เมื่อคลิก notification
+  const handleNotificationClick = (orderId: number) => {
+    setShowNotifications(false);
+    router.push(`/admin/orders`);
+  };
+
   if (isLoginPage) {
     return <>{children}</>;
   }
 
-  // Loading state สำหรับหน้าอื่นๆ
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -167,13 +237,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  // ถ้าไม่มี admin data และไม่ใช่หน้า login (กำลัง redirect)
   if (!admin) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {/* Audio Element */}
+      <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
+
       {/* Sidebar Overlay */}
       {sidebarOpen && (
         <div 
@@ -251,14 +323,103 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex-1 lg:flex-none" />
 
           <div className="flex items-center gap-4">
-            {/* Notification Bell */}
-            <button className="relative p-2 text-gray-600 hover:text-gray-900 transition-colors">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
+            {/* ✅ Notification Bell with Dropdown */}
+            <div className="relative" ref={notificationRef}>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className={`relative p-2 transition-colors rounded-lg ${
+                  notifications.length > 0 
+                    ? 'text-primary-600 bg-primary-50 hover:bg-primary-100' 
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center notification-pulse">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+
+              {/* ✅ Notification Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden animate-scale-in">
+                  <div className="p-4 border-b bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-gray-900">🔔 รอยืนยัน</h3>
+                      <span className="text-sm text-gray-500">{notifications.length} รายการ</span>
+                    </div>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length > 0 ? (
+                      notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          onClick={() => handleNotificationClick(notification.id)}
+                          className="p-4 border-b hover:bg-primary-50 cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <span className="text-lg">🍽️</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <p className="font-semibold text-gray-900">{notification.table.name}</p>
+                                <span className="text-xs text-gray-500">
+                                  {formatRelativeTime(notification.createdAt)}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 mt-0.5">
+                                #{notification.orderNumber} • {notification.orderItems.length} รายการ
+                              </p>
+                              <div className="mt-1 text-xs text-gray-500 truncate">
+                                {notification.orderItems.slice(0, 2).map((item, idx) => (
+                                  <span key={item.id}>
+                                    {item.menuItem.name} x{item.quantity}
+                                    {idx < Math.min(notification.orderItems.length, 2) - 1 ? ', ' : ''}
+                                  </span>
+                                ))}
+                                {notification.orderItems.length > 2 && (
+                                  <span> +{notification.orderItems.length - 2} อื่นๆ</span>
+                                )}
+                              </div>
+                              <p className="text-sm font-semibold text-primary-600 mt-1">
+                                {formatCurrency(notification.totalAmount)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center">
+                        <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                          <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-500">ไม่มีออเดอร์รอยืนยัน</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {notifications.length > 0 && (
+                    <div className="p-3 border-t bg-gray-50">
+                      <Link
+                        href="/admin/orders"
+                        onClick={() => setShowNotifications(false)}
+                        className="block w-full text-center text-sm font-medium text-primary-600 hover:text-primary-700"
+                      >
+                        ดูทั้งหมด →
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

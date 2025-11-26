@@ -1,7 +1,7 @@
 // ===================================================
 // FILE: page.tsx
-// PATH: /restaurant-qr-order/src/app/(admin)/orders/page.tsx
-// DESCRIPTION: หน้าจัดการรายการสั่งซื้อ
+// PATH: /restaurant-qr-order/src/app/admin/orders/page.tsx
+// DESCRIPTION: หน้าจัดการรายการสั่งซื้อ (สามารถยกเลิกรายการทีละรายการได้)
 // ===================================================
 
 'use client';
@@ -9,6 +9,15 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatCurrency, formatRelativeTime, formatDate, orderStatusLabels, orderStatusColors } from '@/lib/utils';
 import Swal from 'sweetalert2';
+
+interface OrderItem {
+  id: number; 
+  quantity: number; 
+  unitPrice: string;
+  totalPrice: string;
+  notes: string | null;
+  menuItem: { id: number; name: string; image: string | null };
+}
 
 interface Order {
   id: number;
@@ -19,14 +28,7 @@ interface Order {
   adminMessage: string | null;
   createdAt: string;
   table: { id: number; name: string };
-  orderItems: { 
-    id: number; 
-    quantity: number; 
-    unitPrice: string;
-    totalPrice: string;
-    notes: string | null;
-    menuItem: { id: number; name: string; image: string | null } 
-  }[];
+  orderItems: OrderItem[];
 }
 
 type FilterStatus = 'all' | 'active' | 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED';
@@ -39,6 +41,12 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastPendingCountRef = useRef<number>(0);
+  const selectedOrderIdRef = useRef<number | null>(null); // ✅ ใช้ ref แทน
+
+  // ✅ Sync selectedOrder.id กับ ref
+  useEffect(() => {
+    selectedOrderIdRef.current = selectedOrder?.id ?? null;
+  }, [selectedOrder]);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -53,20 +61,27 @@ export default function OrdersPage() {
       if (result.success) {
         const pendingCount = result.data.filter((o: Order) => o.status === 'PENDING').length;
         
-        // Play sound if new pending order
         if (pendingCount > lastPendingCountRef.current && soundEnabled) {
           playNotificationSound();
         }
         lastPendingCountRef.current = pendingCount;
         
         setOrders(result.data);
+        
+        // ✅ อัพเดท selectedOrder โดยใช้ ref (ไม่ทำให้ useCallback สร้างใหม่)
+        if (selectedOrderIdRef.current) {
+          const updated = result.data.find((o: Order) => o.id === selectedOrderIdRef.current);
+          if (updated) {
+            setSelectedOrder(updated);
+          }
+        }
       }
     } catch (error) {
       console.error('Fetch orders error:', error);
     } finally {
       setLoading(false);
     }
-  }, [filter, soundEnabled]);
+  }, [filter, soundEnabled]); // ✅ ไม่มี selectedOrder ใน dependency แล้ว
 
   useEffect(() => {
     fetchOrders();
@@ -99,10 +114,72 @@ export default function OrdersPage() {
           showConfirmButton: false,
         });
         fetchOrders();
-        setSelectedOrder(null);
+        if (status === 'CANCELLED' || status === 'COMPLETED') {
+          setSelectedOrder(null);
+        }
       }
     } catch {
       Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด' });
+    }
+  };
+
+  // ✅ ฟังก์ชันลบรายการอาหารทีละรายการ (พร้อมถามเหตุผล)
+  const handleDeleteOrderItem = async (orderId: number, itemId: number, itemName: string) => {
+    const result = await Swal.fire({
+      title: 'ยกเลิกรายการ?',
+      html: `
+        <p class="mb-4">ต้องการยกเลิก "<strong>${itemName}</strong>" ใช่หรือไม่?</p>
+        <input id="cancel-reason" class="swal2-input" placeholder="เหตุผล (ไม่บังคับ)" style="margin-top: 0;">
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'ยกเลิกรายการ',
+      cancelButtonText: 'ไม่',
+      preConfirm: () => {
+        const reasonInput = document.getElementById('cancel-reason') as HTMLInputElement;
+        return reasonInput?.value || '';
+      },
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const res = await fetch(`/api/orders/${orderId}/items/${itemId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: result.value }),
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          if (data.orderCancelled) {
+            Swal.fire({
+              icon: 'info',
+              title: 'ยกเลิก Order แล้ว',
+              text: 'เนื่องจากไม่มีรายการเหลือ Order จึงถูกยกเลิก',
+              timer: 2000,
+              showConfirmButton: false,
+            });
+            setSelectedOrder(null);
+          } else {
+            Swal.fire({
+              icon: 'success',
+              title: 'ลบรายการแล้ว',
+              text: 'ลูกค้าจะได้รับแจ้งเตือน',
+              timer: 1500,
+              showConfirmButton: false,
+            });
+            // อัพเดท selectedOrder ด้วยข้อมูลใหม่
+            setSelectedOrder(data.data);
+          }
+          fetchOrders();
+        } else {
+          Swal.fire({ icon: 'error', title: 'ผิดพลาด', text: data.error });
+        }
+      } catch {
+        Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด' });
+      }
     }
   };
 
@@ -122,7 +199,7 @@ export default function OrdersPage() {
         await fetch(`/api/orders/${orderId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ adminMessage: message }),
+          body: JSON.stringify({ adminMessage: message, isNotified: false }),
         });
         
         Swal.fire({
@@ -138,20 +215,52 @@ export default function OrdersPage() {
     }
   };
 
-  const handleCancelOrder = async (orderId: number) => {
+  // ✅ ฟังก์ชันยกเลิก Order ทั้งหมด (พร้อมถามเหตุผล)
+  const handleCancelOrder = async (orderId: number, orderNumber?: string) => {
     const result = await Swal.fire({
-      title: 'ยกเลิกออเดอร์?',
-      text: 'คุณต้องการยกเลิกออเดอร์นี้ใช่หรือไม่?',
+      title: 'ยกเลิก Order ทั้งหมด?',
+      html: `
+        <p class="mb-4">คุณต้องการยกเลิก Order นี้ทั้งหมดใช่หรือไม่?</p>
+        <input id="cancel-reason" class="swal2-input" placeholder="เหตุผล (ไม่บังคับ)" style="margin-top: 0;">
+      `,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#dc2626',
       cancelButtonColor: '#6b7280',
-      confirmButtonText: 'ยกเลิก',
+      confirmButtonText: 'ยกเลิก Order',
       cancelButtonText: 'ไม่',
+      preConfirm: () => {
+        const reasonInput = document.getElementById('cancel-reason') as HTMLInputElement;
+        return reasonInput?.value || '';
+      },
     });
 
     if (result.isConfirmed) {
-      handleUpdateStatus(orderId, 'CANCELLED');
+      try {
+        const res = await fetch(`/api/orders/${orderId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            status: 'CANCELLED',
+            cancelReason: result.value,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'ยกเลิก Order แล้ว',
+            text: 'ลูกค้าจะได้รับแจ้งเตือน',
+            timer: 1500,
+            showConfirmButton: false,
+          });
+          fetchOrders();
+          setSelectedOrder(null);
+        }
+      } catch {
+        Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด' });
+      }
     }
   };
 
@@ -238,7 +347,10 @@ export default function OrdersPage() {
                 <div className="space-y-1">
                   {order.orderItems.slice(0, 3).map((item) => (
                     <div key={item.id} className="flex justify-between text-sm">
-                      <span className="text-gray-700">{item.menuItem.name} x{item.quantity}</span>
+                      <span className="text-gray-700">
+                        {item.menuItem.name} x{item.quantity}
+                        {item.notes && <span className="text-yellow-600 ml-1">📝</span>}
+                      </span>
                       <span className="text-gray-500">{formatCurrency(item.totalPrice)}</span>
                     </div>
                   ))}
@@ -300,7 +412,7 @@ export default function OrdersPage() {
       {selectedOrder && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedOrder(null)}>
           <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-auto animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b sticky top-0 bg-white">
+            <div className="p-6 border-b sticky top-0 bg-white z-10">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">{selectedOrder.table.name}</h2>
@@ -322,30 +434,56 @@ export default function OrdersPage() {
                 <span className="text-sm text-gray-500">{formatDate(selectedOrder.createdAt, 'long')}</span>
               </div>
 
+              {/* ✅ รายการอาหาร พร้อมปุ่มยกเลิกแต่ละรายการ */}
               <div className="border rounded-lg divide-y">
                 {selectedOrder.orderItems.map((item) => (
-                  <div key={item.id} className="p-3 flex items-center gap-3">
-                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                      {item.menuItem.image ? (
-                        <img src={item.menuItem.image} alt="" className="w-full h-full object-cover rounded-lg" />
-                      ) : (
-                        <span className="text-2xl">🍽️</span>
-                      )}
+                  <div key={item.id} className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        {item.menuItem.image ? (
+                          <img src={item.menuItem.image} alt="" className="w-full h-full object-cover rounded-lg" />
+                        ) : (
+                          <span className="text-2xl">🍽️</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium">{item.menuItem.name}</p>
+                        <p className="text-sm text-gray-500">x{item.quantity} @ {formatCurrency(item.unitPrice)}</p>
+                        {item.notes && (
+                          <p className="text-sm text-yellow-600 mt-1">📝 {item.notes}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold">{formatCurrency(item.totalPrice)}</p>
+                        {/* ✅ ปุ่มยกเลิกรายการ (แสดงเฉพาะสถานะที่ยังไม่เสร็จ) */}
+                        {['PENDING', 'CONFIRMED', 'PREPARING'].includes(selectedOrder.status) && (
+                          <button
+                            onClick={() => handleDeleteOrderItem(selectedOrder.id, item.id, item.menuItem.name)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="ยกเลิกรายการนี้"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium">{item.menuItem.name}</p>
-                      <p className="text-sm text-gray-500">x{item.quantity} @ {formatCurrency(item.unitPrice)}</p>
-                      {item.notes && <p className="text-sm text-yellow-600">📝 {item.notes}</p>}
-                    </div>
-                    <p className="font-semibold">{formatCurrency(item.totalPrice)}</p>
                   </div>
                 ))}
               </div>
 
               {selectedOrder.notes && (
                 <div className="p-3 bg-yellow-50 rounded-lg">
-                  <p className="text-sm font-medium text-yellow-800">หมายเหตุ:</p>
+                  <p className="text-sm font-medium text-yellow-800">หมายเหตุจากลูกค้า:</p>
                   <p className="text-sm text-yellow-700">{selectedOrder.notes}</p>
+                </div>
+              )}
+
+              {selectedOrder.adminMessage && (
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800">ข้อความที่ส่งถึงลูกค้า:</p>
+                  <p className="text-sm text-blue-700">{selectedOrder.adminMessage}</p>
                 </div>
               )}
 
@@ -366,7 +504,7 @@ export default function OrdersPage() {
                       ✓ ยืนยัน
                     </button>
                     <button onClick={() => handleCancelOrder(selectedOrder.id)} className="btn-danger">
-                      ยกเลิก
+                      ยกเลิก Order
                     </button>
                   </>
                 )}

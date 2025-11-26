@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const tableId = searchParams.get('tableId');
     const date = searchParams.get('date');
     const limit = searchParams.get('limit');
+    const includeNotifications = searchParams.get('includeNotifications') === 'true';
 
     const where: Prisma.OrderWhereInput = {};
 
@@ -41,6 +42,34 @@ export async function GET(request: NextRequest) {
         gte: startDate,
         lte: endDate,
       };
+    }
+
+    // ✅ สำหรับลูกค้า: รวม orders ที่มี notification ที่ยังไม่ได้อ่าน
+    if (includeNotifications && tableId) {
+      const orders = await prisma.order.findMany({
+        where: {
+          tableId: parseInt(tableId),
+          OR: [
+            // Orders ที่ยัง active
+            { status: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'] } },
+            // Orders ที่ถูก cancel แต่ยังไม่ได้ notify
+            { 
+              status: 'CANCELLED',
+              isNotified: false,
+              adminMessage: { not: null },
+            },
+          ],
+        },
+        include: {
+          table: true,
+          orderItems: {
+            include: { menuItem: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return NextResponse.json({ success: true, data: orders });
     }
 
     const orders = await prisma.order.findMany({

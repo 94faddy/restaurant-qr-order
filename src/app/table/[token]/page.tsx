@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
 import Swal from 'sweetalert2';
@@ -57,10 +57,10 @@ interface Order {
   status: string;
   totalAmount: string;
   adminMessage: string | null;
+  isNotified: boolean;
 }
 
 export default function CustomerOrderPage() {
-  // ใช้ useParams แทน use(params)
   const params = useParams();
   const token = params.token as string;
 
@@ -75,6 +75,10 @@ export default function CustomerOrderPage() {
   const [submitting, setSubmitting] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [showOrders, setShowOrders] = useState(false);
+  const [editingNotes, setEditingNotes] = useState<number | null>(null);
+  
+  // ✅ เก็บ ID ของ message ที่แสดงแล้ว เพื่อไม่ให้แสดงซ้ำ
+  const shownMessagesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (token) {
@@ -92,7 +96,6 @@ export default function CustomerOrderPage() {
 
   const fetchData = async () => {
     try {
-      // Fetch table by token
       const tableRes = await fetch(`/api/tables/token/${token}`);
       const tableData = await tableRes.json();
       
@@ -110,14 +113,12 @@ export default function CustomerOrderPage() {
 
       setTable(tableData.data);
 
-      // Fetch settings
       const settingsRes = await fetch('/api/settings');
       const settingsData = await settingsRes.json();
       if (settingsData.success) {
         setSettings(settingsData.data);
       }
 
-      // Fetch menu
       const menuRes = await fetch('/api/categories?includeItems=true&activeOnly=true');
       const menuData = await menuRes.json();
       if (menuData.success) {
@@ -127,7 +128,6 @@ export default function CustomerOrderPage() {
         }
       }
 
-      // Fetch existing orders
       await fetchOrdersForTable(tableData.data.id);
 
     } catch {
@@ -139,22 +139,46 @@ export default function CustomerOrderPage() {
 
   const fetchOrdersForTable = async (tableId: number) => {
     try {
-      const res = await fetch(`/api/orders?tableId=${tableId}&status=active`);
+      // ✅ เพิ่ม includeNotifications เพื่อดึง orders ที่ถูกยกเลิกด้วย
+      const res = await fetch(`/api/orders?tableId=${tableId}&includeNotifications=true`);
       const data = await res.json();
       if (data.success) {
-        setOrders(data.data);
+        // แยก orders ที่ active กับ cancelled
+        const activeOrders = data.data.filter((o: Order) => 
+          ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'].includes(o.status)
+        );
+        setOrders(activeOrders);
         
-        // Check for admin messages
-        data.data.forEach((order: Order) => {
-          if (order.adminMessage) {
-            Swal.fire({
-              icon: 'info',
-              title: 'ข้อความจากร้าน',
-              text: order.adminMessage,
-              confirmButtonColor: '#ee7712',
-            });
+        // ✅ เช็คและแสดงข้อความจาก Admin (รวมถึงการยกเลิก)
+        for (const order of data.data) {
+          if (order.adminMessage && !order.isNotified) {
+            const messageKey = `${order.id}-${order.adminMessage}`;
+            
+            // ถ้ายังไม่เคยแสดงข้อความนี้
+            if (!shownMessagesRef.current.has(messageKey)) {
+              shownMessagesRef.current.add(messageKey);
+              
+              // ✅ ตรวจสอบว่าเป็นข้อความยกเลิกหรือไม่
+              const isCancellation = order.status === 'CANCELLED' || 
+                                    order.adminMessage.includes('ยกเลิก');
+              
+              // แสดง SweetAlert
+              await Swal.fire({
+                icon: isCancellation ? 'warning' : 'info',
+                title: isCancellation 
+                  ? '⚠️ รายการถูกยกเลิก' 
+                  : `ข้อความจากร้าน (${order.orderNumber})`,
+                html: `<div style="white-space: pre-line; text-align: left;">${order.adminMessage}</div>`,
+                confirmButtonColor: '#ee7712',
+              });
+              
+              // ✅ Mark as notified ใน database
+              await fetch(`/api/orders/${order.id}/notify`, {
+                method: 'PUT',
+              });
+            }
           }
-        });
+        }
       }
     } catch (error) {
       console.error('Fetch orders error:', error);
@@ -196,6 +220,7 @@ export default function CustomerOrderPage() {
         quantity: 1,
         image: item.image,
         maxPerOrder: item.maxPerOrder,
+        notes: '',
       }];
     });
   };
@@ -222,6 +247,14 @@ export default function CustomerOrderPage() {
         })
         .filter(Boolean) as CartItem[];
     });
+  };
+
+  const updateItemNotes = (menuItemId: number, notes: string) => {
+    setCart((prev) =>
+      prev.map((item) =>
+        item.menuItemId === menuItemId ? { ...item, notes } : item
+      )
+    );
   };
 
   const removeFromCart = (menuItemId: number) => {
@@ -268,7 +301,7 @@ export default function CustomerOrderPage() {
             items: cart.map((item) => ({
               menuItemId: item.menuItemId,
               quantity: item.quantity,
-              notes: item.notes,
+              notes: item.notes || null,
             })),
           }),
         });
@@ -450,6 +483,10 @@ export default function CustomerOrderPage() {
                         </div>
                       )}
                     </div>
+                    {/* ✅ แสดง notes ถ้ามี */}
+                    {cartItem && cartItem.notes && (
+                      <p className="text-xs text-yellow-600 mt-1">📝 {cartItem.notes}</p>
+                    )}
                   </div>
                 </div>
               );
@@ -480,10 +517,10 @@ export default function CustomerOrderPage() {
       {showCart && (
         <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setShowCart(false)}>
           <div 
-            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[80vh] overflow-auto animate-slide-up"
+            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-auto animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sticky top-0 bg-white p-4 border-b">
+            <div className="sticky top-0 bg-white p-4 border-b z-10">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold">🛒 ตะกร้าของคุณ</h2>
                 <button onClick={() => setShowCart(false)} className="p-2">
@@ -494,30 +531,66 @@ export default function CustomerOrderPage() {
               </div>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-4">
               {cart.map((item) => (
-                <div key={item.menuItemId} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
-                    {item.image ? (
-                      <img src={item.image} alt="" className="w-full h-full object-cover" />
+                <div key={item.menuItemId} className="p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-16 h-16 bg-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+                      {item.image ? (
+                        <img src={item.image} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl">🍽️</div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{item.name}</p>
+                      {!settings?.isBuffetMode && (
+                        <p className="text-sm text-gray-500">{formatCurrency(item.price)} x {item.quantity}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => updateQuantity(item.menuItemId, -1)} className="qty-btn">-</button>
+                      <span className="w-8 text-center font-semibold">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.menuItemId, 1)} className="qty-btn">+</button>
+                    </div>
+                    <button onClick={() => removeFromCart(item.menuItemId)} className="p-2 text-red-500">
+                      🗑️
+                    </button>
+                  </div>
+                  
+                  {/* ✅ Notes Input สำหรับแต่ละรายการ */}
+                  <div className="mt-3">
+                    {editingNotes === item.menuItemId ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-400"
+                          placeholder="เช่น ไม่ใส่ผัก, ไม่เผ็ด..."
+                          value={item.notes || ''}
+                          onChange={(e) => updateItemNotes(item.menuItemId, e.target.value)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => setEditingNotes(null)}
+                          className="px-3 py-2 bg-primary-500 text-white text-sm rounded-lg"
+                        >
+                          ตกลง
+                        </button>
+                      </div>
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-2xl">🍽️</div>
+                      <button
+                        onClick={() => setEditingNotes(item.menuItemId)}
+                        className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary-600"
+                      >
+                        <span>📝</span>
+                        {item.notes ? (
+                          <span className="text-yellow-600">{item.notes}</span>
+                        ) : (
+                          <span>เพิ่มหมายเหตุ</span>
+                        )}
+                      </button>
                     )}
                   </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{item.name}</p>
-                    {!settings?.isBuffetMode && (
-                      <p className="text-sm text-gray-500">{formatCurrency(item.price)} x {item.quantity}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => updateQuantity(item.menuItemId, -1)} className="qty-btn">-</button>
-                    <span className="w-8 text-center font-semibold">{item.quantity}</span>
-                    <button onClick={() => updateQuantity(item.menuItemId, 1)} className="qty-btn">+</button>
-                  </div>
-                  <button onClick={() => removeFromCart(item.menuItemId)} className="p-2 text-red-500">
-                    🗑️
-                  </button>
                 </div>
               ))}
             </div>

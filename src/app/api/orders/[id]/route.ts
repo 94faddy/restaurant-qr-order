@@ -55,7 +55,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const { status, adminMessage } = await request.json();
+    const { status, adminMessage, isNotified, cancelReason } = await request.json();
+
+    // ✅ ดึง order เดิมก่อน (สำหรับสร้างข้อความยกเลิก)
+    const existingOrder = await prisma.order.findUnique({
+      where: { id: parseInt(id) },
+    });
+
+    if (!existingOrder) {
+      return NextResponse.json(
+        { success: false, error: 'ไม่พบ Order' },
+        { status: 404 }
+      );
+    }
 
     const updateData: Record<string, unknown> = {};
     
@@ -69,6 +81,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           break;
         case 'CANCELLED':
           updateData.cancelledAt = new Date();
+          // ✅ สร้างข้อความแจ้งเตือนการยกเลิกอัตโนมัติ
+          if (!adminMessage) {
+            const cancelMessage = cancelReason 
+              ? `❌ Order #${existingOrder.orderNumber} ถูกยกเลิก\nเหตุผล: ${cancelReason}`
+              : `❌ Order #${existingOrder.orderNumber} ถูกยกเลิก`;
+            updateData.adminMessage = cancelMessage;
+            updateData.isNotified = false;
+          }
           break;
         case 'COMPLETED':
           updateData.completedAt = new Date();
@@ -76,8 +96,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // ✅ เมื่อส่งข้อความใหม่ ให้ reset isNotified เป็น false
     if (adminMessage !== undefined) {
       updateData.adminMessage = adminMessage;
+      updateData.isNotified = false; // ✅ Reset เพื่อให้ลูกค้าเห็นข้อความใหม่
+    }
+
+    // ✅ อนุญาตให้ set isNotified โดยตรง (จาก API notify)
+    if (isNotified !== undefined) {
+      updateData.isNotified = isNotified;
     }
 
     const order = await prisma.order.update({
