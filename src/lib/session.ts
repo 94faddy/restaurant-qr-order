@@ -34,12 +34,18 @@ export interface CartItem {
   notes?: string;
 }
 
+// ตรวจสอบว่าใช้ HTTPS หรือไม่ (สำหรับ ngrok หรือ production)
+const isSecure = () => {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  return appUrl.startsWith('https://') || process.env.NODE_ENV === 'production';
+};
+
 // Session Options
 const sessionOptions: SessionOptions = {
   password: process.env.SESSION_SECRET || 'complex_password_at_least_32_characters_long',
   cookieName: 'restaurant_session',
   cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure(),
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 7, // 7 days
@@ -50,7 +56,7 @@ const customerSessionOptions: SessionOptions = {
   password: process.env.SESSION_SECRET || 'complex_password_at_least_32_characters_long',
   cookieName: 'customer_session',
   cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecure(),
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 60 * 60 * 4, // 4 hours

@@ -6,7 +6,8 @@
 
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
 import Swal from 'sweetalert2';
 
@@ -58,9 +59,10 @@ interface Order {
   adminMessage: string | null;
 }
 
-export default function CustomerOrderPage({ params }: { params: Promise<{ token: string }> }) {
-  const resolvedParams = use(params);
-  const { token } = resolvedParams;
+export default function CustomerOrderPage() {
+  // ใช้ useParams แทน use(params)
+  const params = useParams();
+  const token = params.token as string;
 
   const [table, setTable] = useState<Table | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -75,12 +77,18 @@ export default function CustomerOrderPage({ params }: { params: Promise<{ token:
   const [showOrders, setShowOrders] = useState(false);
 
   useEffect(() => {
-    fetchData();
+    if (token) {
+      fetchData();
+    }
+  }, [token]);
+
+  // Poll for order updates
+  useEffect(() => {
+    if (!table) return;
     
-    // Poll for order updates
     const interval = setInterval(fetchOrders, 10000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [table]);
 
   const fetchData = async () => {
     try {
@@ -120,7 +128,7 @@ export default function CustomerOrderPage({ params }: { params: Promise<{ token:
       }
 
       // Fetch existing orders
-      await fetchOrders();
+      await fetchOrdersForTable(tableData.data.id);
 
     } catch {
       setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
@@ -129,11 +137,9 @@ export default function CustomerOrderPage({ params }: { params: Promise<{ token:
     }
   };
 
-  const fetchOrders = async () => {
-    if (!table) return;
-    
+  const fetchOrdersForTable = async (tableId: number) => {
     try {
-      const res = await fetch(`/api/orders?tableId=${table.id}&status=active`);
+      const res = await fetch(`/api/orders?tableId=${tableId}&status=active`);
       const data = await res.json();
       if (data.success) {
         setOrders(data.data);
@@ -153,6 +159,11 @@ export default function CustomerOrderPage({ params }: { params: Promise<{ token:
     } catch (error) {
       console.error('Fetch orders error:', error);
     }
+  };
+
+  const fetchOrders = async () => {
+    if (!table) return;
+    await fetchOrdersForTable(table.id);
   };
 
   const addToCart = (item: MenuItem) => {
