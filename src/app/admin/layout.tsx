@@ -1,6 +1,6 @@
 // ===================================================
 // FILE: layout.tsx
-// PATH: /restaurant-qr-order/src/app/(admin)/layout.tsx
+// PATH: /restaurant-qr-order/src/app/admin/layout.tsx
 // DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด
 // ===================================================
 
@@ -20,7 +20,7 @@ interface AdminData {
 
 const menuItems = [
   {
-    href: '/dashboard',
+    href: '/admin/dashboard',
     label: 'แดชบอร์ด',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -30,7 +30,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/orders',
+    href: '/admin/orders',
     label: 'รายการสั่งซื้อ',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -40,7 +40,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/menu',
+    href: '/admin/menu',
     label: 'จัดการเมนู',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -50,7 +50,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/tables',
+    href: '/admin/tables',
     label: 'จัดการโต๊ะ',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -60,7 +60,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/qrcode',
+    href: '/admin/qrcode',
     label: 'QR Code',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -70,7 +70,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/reports',
+    href: '/admin/reports',
     label: 'รายงาน',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -80,7 +80,7 @@ const menuItems = [
     ),
   },
   {
-    href: '/settings',
+    href: '/admin/settings',
     label: 'ตั้งค่า',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -100,9 +100,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // ✅ เช็คว่าเป็นหน้า login หรือไม่
+  const isLoginPage = pathname === '/admin/login';
+
   useEffect(() => {
+    // ✅ ถ้าเป็นหน้า login ไม่ต้องเช็ค session
+    if (isLoginPage) {
+      setLoading(false);
+      return;
+    }
+
     checkSession();
-  }, []);
+  }, [isLoginPage]);
 
   const checkSession = async () => {
     try {
@@ -112,10 +121,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (data.success && data.isLoggedIn) {
         setAdmin(data.data);
       } else {
-        router.push('/admin/login');
+        router.replace('/admin/login');
+        return;
       }
     } catch {
-      router.push('/admin/login');
+      router.replace('/admin/login');
+      return;
     } finally {
       setLoading(false);
     }
@@ -135,10 +146,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     if (result.isConfirmed) {
       await fetch('/api/auth/logout', { method: 'POST' });
-      router.push('/admin/login');
+      router.replace('/admin/login');
     }
   };
 
+  // ✅ ถ้าเป็นหน้า login แสดงแค่ children (ไม่มี sidebar)
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
+  // Loading state สำหรับหน้าอื่นๆ
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -148,6 +165,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </div>
     );
+  }
+
+  // ถ้าไม่มี admin data และไม่ใช่หน้า login (กำลัง redirect)
+  if (!admin) {
+    return null;
   }
 
   return (

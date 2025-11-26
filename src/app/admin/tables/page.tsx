@@ -1,6 +1,6 @@
 // ===================================================
 // FILE: page.tsx
-// PATH: /restaurant-qr-order/src/app/(admin)/tables/page.tsx
+// PATH: /restaurant-qr-order/src/app/admin/tables/page.tsx
 // DESCRIPTION: หน้าจัดการโต๊ะ (เพิ่ม/แก้ไข/ลบ/เปิด-ปิด)
 // ===================================================
 
@@ -213,7 +213,8 @@ export default function TablesPage() {
           <p className="text-gray-500 mt-1">เพิ่ม แก้ไข เปิด/ปิด โต๊ะ</p>
         </div>
         <div className="flex gap-2">
-          <a href="/qrcode" className="btn-outline">
+          {/* ✅ แก้ path ให้ถูกต้อง */}
+          <a href="/admin/qrcode" className="btn-outline">
             🖨️ พิมพ์ QR Code
           </a>
           <button
@@ -252,9 +253,9 @@ export default function TablesPage() {
                 table.isOccupied ? 'table-card-occupied' : ''
               }`}
             >
-              <div className="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center text-2xl font-bold
-                ${table.isOccupied ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-600'}
-              ">
+              <div className={`w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center text-2xl font-bold ${
+                table.isOccupied ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-600'
+              }`}>
                 {table.isOccupied ? '👥' : '🪑'}
               </div>
               

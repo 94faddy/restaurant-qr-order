@@ -1,12 +1,12 @@
 // ===================================================
 // FILE: page.tsx
-// PATH: /restaurant-qr-order/src/app/(admin)/dashboard/page.tsx
+// PATH: /restaurant-qr-order/src/app/admin/dashboard/page.tsx
 // DESCRIPTION: หน้า Dashboard แสดงภาพรวมระบบ
 // ===================================================
 
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { formatCurrency, formatRelativeTime, orderStatusLabels, orderStatusColors } from '@/lib/utils';
 import Swal from 'sweetalert2';
 
@@ -43,17 +43,22 @@ export default function DashboardPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastOrderCountRef = useRef<number>(0);
+  const isFirstLoadRef = useRef<boolean>(true);
 
-  const fetchData = useCallback(async () => {
+  // ✅ แยก fetchData ออกมาไม่ใส่ใน useCallback เพื่อไม่ให้ re-create ทุกครั้ง
+  const fetchData = async () => {
     try {
       const res = await fetch('/api/dashboard');
       const result = await res.json();
       if (result.success) {
-        // Check for new orders
-        if (data && result.data.pendingOrders > lastOrderCountRef.current && soundEnabled) {
+        // Check for new orders (skip first load)
+        if (!isFirstLoadRef.current && result.data.pendingOrders > lastOrderCountRef.current && soundEnabled) {
           playNotificationSound();
-          showNewOrderNotification(result.data.recentOrders[0]);
+          if (result.data.recentOrders[0]) {
+            showNewOrderNotification(result.data.recentOrders[0]);
+          }
         }
+        isFirstLoadRef.current = false;
         lastOrderCountRef.current = result.data.pendingOrders;
         setData(result.data);
       }
@@ -62,7 +67,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [data, soundEnabled]);
+  };
 
   const fetchSettings = async () => {
     try {
@@ -84,7 +89,8 @@ export default function DashboardPage() {
     // Poll for new orders every 5 seconds
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ✅ ใช้ [] เพื่อให้ run แค่ครั้งเดียว
 
   const playNotificationSound = () => {
     if (audioRef.current) {
@@ -254,7 +260,8 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">ออเดอร์ล่าสุด</h2>
-            <a href="/orders" className="text-primary-600 hover:text-primary-700 text-sm font-medium">
+            {/* ✅ แก้ path ให้ถูกต้อง */}
+            <a href="/admin/orders" className="text-primary-600 hover:text-primary-700 text-sm font-medium">
               ดูทั้งหมด →
             </a>
           </div>
