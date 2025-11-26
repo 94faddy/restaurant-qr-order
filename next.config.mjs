@@ -42,7 +42,7 @@ const imageDomains = process.env.NEXT_PUBLIC_IMAGE_DOMAINS
 const remotePatterns = imageDomains.map(hostname => ({
   protocol: hostname.includes('localhost') ? 'http' : 'https',
   hostname: hostname,
-  port: hostname === 'localhost' ? '3000' : '',
+  port: hostname === 'localhost' ? '2789' : '',
   pathname: '/uploads/**',
 }));
 

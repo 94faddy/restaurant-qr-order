@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "ระบบร้านอาหารสั่งเมนูผ่าน QR Code",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 2789",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 2789",
     "lint": "next lint",
     "db:seed": "npx tsx prisma/seed.ts"
   },
