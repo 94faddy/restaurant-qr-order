@@ -1,13 +1,14 @@
 // ===================================================
 // FILE: route.ts
 // PATH: /restaurant-qr-order/src/app/api/auth/login/route.ts
-// DESCRIPTION: API สำหรับ Admin Login
+// DESCRIPTION: API สำหรับ Admin Login (รองรับ permissions)
 // ===================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
 import { getAdminSession } from '@/lib/session';
+import { parsePermissions } from '@/lib/permissions';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,13 +43,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session
+    // Parse permissions
+    const permissions = parsePermissions(admin.permissions);
+
+    // Create session พร้อม permissions
     const session = await getAdminSession();
     session.isLoggedIn = true;
     session.adminId = admin.id;
     session.username = admin.username;
     session.name = admin.name;
     session.role = admin.role;
+    session.permissions = permissions;
     await session.save();
 
     return NextResponse.json({
@@ -58,6 +63,7 @@ export async function POST(request: NextRequest) {
         username: admin.username,
         name: admin.name,
         role: admin.role,
+        permissions: permissions,
       },
     });
   } catch (error) {

@@ -10,23 +10,39 @@ import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
 
+// รายการ permissions ทั้งหมด
+const ALL_PERMISSIONS = [
+  'dashboard',
+  'orders',
+  'menu',
+  'tables',
+  'qrcode',
+  'reports',
+  'settings',
+  'admins', // สำหรับจัดการ admin
+];
+
 async function main() {
   console.log('🌱 Starting seed...');
 
-  // สร้าง Admin
+  // สร้าง Super Admin (มีสิทธิ์ทั้งหมด)
   const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'admin123', 10);
   
   const admin = await prisma.admin.upsert({
     where: { username: 'admin' },
-    update: {},
+    update: {
+      permissions: JSON.stringify(ALL_PERMISSIONS),
+      role: 'superadmin',
+    },
     create: {
       username: process.env.ADMIN_USERNAME || 'admin',
       password: hashedPassword,
       name: 'ผู้ดูแลระบบ',
-      role: 'admin',
+      role: 'superadmin',
+      permissions: JSON.stringify(ALL_PERMISSIONS),
     },
   });
-  console.log('✅ Created admin:', admin.username);
+  console.log('✅ Created/Updated admin:', admin.username, 'with all permissions');
 
   // สร้าง Settings
   const settings = await prisma.settings.upsert({

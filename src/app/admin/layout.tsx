@@ -1,7 +1,7 @@
 // ===================================================
 // FILE: layout.tsx
 // PATH: /restaurant-qr-order/src/app/admin/layout.tsx
-// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด (ใช้เสียงแจ้งเตือนที่ตั้งค่าไว้)
+// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด (พร้อมระบบ permissions)
 // ===================================================
 
 'use client';
@@ -12,12 +12,20 @@ import Link from 'next/link';
 import Swal from 'sweetalert2';
 import { formatRelativeTime, formatCurrency } from '@/lib/utils';
 import { playNotificationSoundById } from '@/components/NotificationSoundModal';
+import { 
+  PERMISSIONS, 
+  PERMISSION_INFO, 
+  PAGE_PERMISSIONS, 
+  getRequiredPermission,
+  Permission 
+} from '@/lib/permissions';
 
 interface AdminData {
   adminId: number;
   username: string;
   name: string;
   role: string;
+  permissions: string[];
 }
 
 interface OrderNotification {
@@ -37,10 +45,12 @@ interface Settings {
   soundDuration: number;
 }
 
-const menuItems = [
+// Menu items with permission requirements
+const allMenuItems = [
   {
     href: '/admin/dashboard',
     label: 'แดชบอร์ด',
+    permission: PERMISSIONS.DASHBOARD,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -51,6 +61,7 @@ const menuItems = [
   {
     href: '/admin/orders',
     label: 'รายการสั่งซื้อ',
+    permission: PERMISSIONS.ORDERS,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -61,6 +72,7 @@ const menuItems = [
   {
     href: '/admin/menu',
     label: 'จัดการเมนู',
+    permission: PERMISSIONS.MENU,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -71,6 +83,7 @@ const menuItems = [
   {
     href: '/admin/tables',
     label: 'จัดการโต๊ะ',
+    permission: PERMISSIONS.TABLES,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -81,6 +94,7 @@ const menuItems = [
   {
     href: '/admin/qrcode',
     label: 'QR Code',
+    permission: PERMISSIONS.QRCODE,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -91,6 +105,7 @@ const menuItems = [
   {
     href: '/admin/reports',
     label: 'รายงาน',
+    permission: PERMISSIONS.REPORTS,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -99,8 +114,20 @@ const menuItems = [
     ),
   },
   {
+    href: '/admin/admins',
+    label: 'จัดการผู้ดูแล',
+    permission: PERMISSIONS.ADMINS,
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    ),
+  },  
+  {
     href: '/admin/settings',
     label: 'ตั้งค่า',
+    permission: PERMISSIONS.SETTINGS,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -118,6 +145,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [admin, setAdmin] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   
   // State สำหรับ Notification
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
@@ -176,6 +204,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [settings, playNotificationSound]);
 
+  // ตรวจสอบสิทธิ์เข้าถึงหน้าปัจจุบัน
+  const checkPagePermission = useCallback((adminData: AdminData, path: string): boolean => {
+    const requiredPermission = getRequiredPermission(path);
+    
+    // ถ้าไม่มี permission requirement (หน้าที่ไม่ได้กำหนด) ให้เข้าได้
+    if (!requiredPermission) return true;
+    
+    // ตรวจสอบว่า admin มีสิทธิ์หรือไม่
+    return adminData.permissions.includes(requiredPermission);
+  }, []);
+
   useEffect(() => {
     if (isLoginPage) {
       setLoading(false);
@@ -186,9 +225,34 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     fetchSettings();
   }, [isLoginPage, fetchSettings]);
 
+  // ตรวจสอบสิทธิ์เมื่อเปลี่ยนหน้า
+  useEffect(() => {
+    if (isLoginPage || !admin) return;
+    
+    const hasAccess = checkPagePermission(admin, pathname);
+    setAccessDenied(!hasAccess);
+    
+    if (!hasAccess) {
+      // หาหน้าแรกที่มีสิทธิ์เข้าถึง
+      const firstAccessiblePage = allMenuItems.find(item => 
+        admin.permissions.includes(item.permission)
+      );
+      
+      if (firstAccessiblePage) {
+        // รอสักครู่แล้ว redirect
+        setTimeout(() => {
+          router.replace(firstAccessiblePage.href);
+        }, 2000);
+      }
+    }
+  }, [pathname, admin, isLoginPage, checkPagePermission, router]);
+
   // Poll notifications
   useEffect(() => {
     if (isLoginPage || !admin) return;
+    
+    // ตรวจสอบว่ามีสิทธิ์ดู orders หรือไม่
+    if (!admin.permissions.includes(PERMISSIONS.ORDERS)) return;
 
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5000);
@@ -250,6 +314,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push(`/admin/orders`);
   };
 
+  // กรองเมนูตามสิทธิ์
+  const filteredMenuItems = allMenuItems.filter(item => 
+    admin?.permissions.includes(item.permission)
+  );
+
   if (isLoginPage) {
     return <>{children}</>;
   }
@@ -267,6 +336,52 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!admin) {
     return null;
+  }
+
+  // แสดงหน้าไม่มีสิทธิ์เข้าถึง
+  if (accessDenied) {
+    const requiredPermission = getRequiredPermission(pathname);
+    const permissionInfo = requiredPermission ? PERMISSION_INFO[requiredPermission] : null;
+    
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <div className="w-24 h-24 mx-auto bg-red-100 rounded-full flex items-center justify-center mb-6">
+            <svg className="w-12 h-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">ไม่มีสิทธิ์เข้าถึง</h1>
+          <p className="text-gray-500 mb-4">
+            คุณไม่มีสิทธิ์เข้าถึงหน้า{' '}
+            <strong className="text-gray-700">
+              {permissionInfo?.label || pathname}
+            </strong>
+          </p>
+          <p className="text-sm text-gray-400 mb-6">
+            กรุณาติดต่อผู้ดูแลระบบหากต้องการสิทธิ์เข้าถึง
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => router.back()}
+              className="btn-ghost"
+            >
+              ← กลับ
+            </button>
+            <button
+              onClick={handleLogout}
+              className="btn-outline"
+            >
+              ออกจากระบบ
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-6">
+            กำลัง redirect ไปหน้าที่มีสิทธิ์เข้าถึง...
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -293,7 +408,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Menu */}
         <nav className="p-4 space-y-1">
-          {menuItems.map((item) => (
+          {filteredMenuItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -304,6 +419,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <span>{item.label}</span>
             </Link>
           ))}
+          
+          {filteredMenuItems.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <p className="text-sm">ไม่มีเมนูที่เข้าถึงได้</p>
+            </div>
+          )}
         </nav>
 
         {/* User Info */}
@@ -316,7 +437,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">{admin?.name}</p>
-              <p className="text-xs text-gray-500">{admin?.role}</p>
+              <p className="text-xs text-gray-500">
+                {admin?.role === 'superadmin' ? 'Super Admin' : 
+                 admin?.role === 'manager' ? 'ผู้จัดการ' : 'Admin'}
+              </p>
             </div>
             <button
               onClick={handleLogout}
@@ -348,103 +472,105 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex-1 lg:flex-none" />
 
           <div className="flex items-center gap-4">
-            {/* Notification Bell with Dropdown */}
-            <div className="relative" ref={notificationRef}>
-              <button 
-                onClick={() => setShowNotifications(!showNotifications)}
-                className={`relative p-2 transition-colors rounded-lg ${
-                  notifications.length > 0 
-                    ? 'text-primary-600 bg-primary-50 hover:bg-primary-100' 
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-                {notifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center notification-pulse">
-                    {notifications.length}
-                  </span>
-                )}
-              </button>
+            {/* Notification Bell with Dropdown - แสดงเฉพาะผู้มีสิทธิ์ orders */}
+            {admin.permissions.includes(PERMISSIONS.ORDERS) && (
+              <div className="relative" ref={notificationRef}>
+                <button 
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className={`relative p-2 transition-colors rounded-lg ${
+                    notifications.length > 0 
+                      ? 'text-primary-600 bg-primary-50 hover:bg-primary-100' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center notification-pulse">
+                      {notifications.length}
+                    </span>
+                  )}
+                </button>
 
-              {/* Notification Dropdown */}
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden animate-scale-in">
-                  <div className="p-4 border-b bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-gray-900">🔔 รอยืนยัน</h3>
-                      <span className="text-sm text-gray-500">{notifications.length} รายการ</span>
+                {/* Notification Dropdown */}
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden animate-scale-in">
+                    <div className="p-4 border-b bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-gray-900">🔔 รอยืนยัน</h3>
+                        <span className="text-sm text-gray-500">{notifications.length} รายการ</span>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="max-h-96 overflow-y-auto">
-                    {notifications.length > 0 ? (
-                      notifications.map((notification) => (
-                        <div
-                          key={notification.id}
-                          onClick={handleNotificationClick}
-                          className="p-4 border-b hover:bg-primary-50 cursor-pointer transition-colors"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-lg">🍽️</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <p className="font-semibold text-gray-900">{notification.table.name}</p>
-                                <span className="text-xs text-gray-500">
-                                  {formatRelativeTime(notification.createdAt)}
-                                </span>
+                    <div className="max-h-96 overflow-y-auto">
+                      {notifications.length > 0 ? (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            onClick={handleNotificationClick}
+                            className="p-4 border-b hover:bg-primary-50 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <span className="text-lg">🍽️</span>
                               </div>
-                              <p className="text-sm text-gray-600 mt-0.5">
-                                #{notification.orderNumber} • {notification.orderItems.length} รายการ
-                              </p>
-                              <div className="mt-1 text-xs text-gray-500 truncate">
-                                {notification.orderItems.slice(0, 2).map((item, idx) => (
-                                  <span key={item.id}>
-                                    {item.menuItem.name} x{item.quantity}
-                                    {idx < Math.min(notification.orderItems.length, 2) - 1 ? ', ' : ''}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-semibold text-gray-900">{notification.table.name}</p>
+                                  <span className="text-xs text-gray-500">
+                                    {formatRelativeTime(notification.createdAt)}
                                   </span>
-                                ))}
-                                {notification.orderItems.length > 2 && (
-                                  <span> +{notification.orderItems.length - 2} อื่นๆ</span>
-                                )}
+                                </div>
+                                <p className="text-sm text-gray-600 mt-0.5">
+                                  #{notification.orderNumber} • {notification.orderItems.length} รายการ
+                                </p>
+                                <div className="mt-1 text-xs text-gray-500 truncate">
+                                  {notification.orderItems.slice(0, 2).map((item, idx) => (
+                                    <span key={item.id}>
+                                      {item.menuItem.name} x{item.quantity}
+                                      {idx < Math.min(notification.orderItems.length, 2) - 1 ? ', ' : ''}
+                                    </span>
+                                  ))}
+                                  {notification.orderItems.length > 2 && (
+                                    <span> +{notification.orderItems.length - 2} อื่นๆ</span>
+                                  )}
+                                </div>
+                                <p className="text-sm font-semibold text-primary-600 mt-1">
+                                  {formatCurrency(notification.totalAmount)}
+                                </p>
                               </div>
-                              <p className="text-sm font-semibold text-primary-600 mt-1">
-                                {formatCurrency(notification.totalAmount)}
-                              </p>
                             </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center">
+                          <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-3">
+                            <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                          <p className="text-gray-500">ไม่มีออเดอร์รอยืนยัน</p>
                         </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center">
-                        <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-3">
-                          <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                        <p className="text-gray-500">ไม่มีออเดอร์รอยืนยัน</p>
+                      )}
+                    </div>
+
+                    {notifications.length > 0 && (
+                      <div className="p-3 border-t bg-gray-50">
+                        <Link
+                          href="/admin/orders"
+                          onClick={() => setShowNotifications(false)}
+                          className="block w-full text-center text-sm font-medium text-primary-600 hover:text-primary-700"
+                        >
+                          ดูทั้งหมด →
+                        </Link>
                       </div>
                     )}
                   </div>
-
-                  {notifications.length > 0 && (
-                    <div className="p-3 border-t bg-gray-50">
-                      <Link
-                        href="/admin/orders"
-                        onClick={() => setShowNotifications(false)}
-                        className="block w-full text-center text-sm font-medium text-primary-600 hover:text-primary-700"
-                      >
-                        ดูทั้งหมด →
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 

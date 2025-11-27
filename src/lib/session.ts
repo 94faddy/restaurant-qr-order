@@ -15,6 +15,7 @@ export interface AdminSessionData {
   username?: string;
   name?: string;
   role?: string;
+  permissions?: string[]; // เพิ่ม permissions
 }
 
 export interface CustomerSessionData {
@@ -93,6 +94,7 @@ export async function getCustomerSessionFromRequest(
 // Default session values
 export const defaultAdminSession: AdminSessionData = {
   isLoggedIn: false,
+  permissions: [],
 };
 
 export const defaultCustomerSession: CustomerSessionData = {

@@ -15,14 +15,15 @@ datasource db {
 
 // ตาราง Admin - ผู้ดูแลระบบ
 model Admin {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique @db.VarChar(50)
-  password  String   @db.VarChar(255)
-  name      String   @db.VarChar(100)
-  role      String   @default("admin") @db.VarChar(20)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  username    String   @unique @db.VarChar(50)
+  password    String   @db.VarChar(255)
+  name        String   @db.VarChar(100)
+  role        String   @default("admin") @db.VarChar(20)
+  permissions String   @default("[]") @db.Text // JSON array ของ permissions
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@map("admins")
 }
