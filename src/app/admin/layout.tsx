@@ -263,7 +263,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       `}>
         {/* Logo */}
         <div className="h-16 flex items-center justify-center border-b border-gray-200 bg-gradient-to-r from-primary-500 to-primary-600">
-          <h1 className="text-xl font-bold text-white font-display">🍽️ QR Order</h1>
+          <h1 className="text-xl font-bold text-white font-display">ระบบจัดการร้านอาหาร</h1>
         </div>
 
         {/* Menu */}
