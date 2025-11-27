@@ -84,7 +84,7 @@ export default function HomePage() {
 
         {/* Footer */}
         <div className="mt-8 text-xs text-gray-400">
-          © 2024 Restaurant QR Order System
+          © 2025 Restaurant QR Order System
         </div>
       </div>
     </main>

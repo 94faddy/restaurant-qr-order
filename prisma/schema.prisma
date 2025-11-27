@@ -149,17 +149,20 @@ model OrderItem {
 
 // ตาราง Settings - การตั้งค่าระบบ
 model Settings {
-  id              Int      @id @default(autoincrement())
-  restaurantName  String   @db.VarChar(100)
-  logo            String?  @db.VarChar(255)
-  soundEnabled    Boolean  @default(true)
-  notifyEnabled   Boolean  @default(true)
-  showPrices      Boolean  @default(true) // แสดงราคา (ปิดกรณีบุฟเฟ่ต์)
-  isBuffetMode    Boolean  @default(false) // โหมดบุฟเฟ่ต์
-  buffetPrice     Decimal? @db.Decimal(10, 2) // ราคาบุฟเฟ่ต์
-  currency        String   @default("THB") @db.VarChar(10)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                Int      @id @default(autoincrement())
+  restaurantName    String   @db.VarChar(100)
+  logo              String?  @db.VarChar(255)
+  soundEnabled      Boolean  @default(true)
+  notificationSound Int      @default(1) // เสียงแจ้งเตือน 1-10
+  soundVolume       Int      @default(50) // ความดังเสียง 0-100
+  soundDuration     Int      @default(100) // ระยะเวลาเสียง 50-200%
+  notifyEnabled     Boolean  @default(true)
+  showPrices        Boolean  @default(true) // แสดงราคา (ปิดกรณีบุฟเฟ่ต์)
+  isBuffetMode      Boolean  @default(false) // โหมดบุฟเฟ่ต์
+  buffetPrice       Decimal? @db.Decimal(10, 2) // ราคาบุฟเฟ่ต์
+  currency          String   @default("THB") @db.VarChar(10)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@map("settings")
 }

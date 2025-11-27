@@ -1,13 +1,14 @@
 // ===================================================
 // FILE: page.tsx
 // PATH: /restaurant-qr-order/src/app/admin/dashboard/page.tsx
-// DESCRIPTION: หน้า Dashboard แสดงภาพรวมระบบ
+// DESCRIPTION: หน้า Dashboard แสดงภาพรวมระบบ (ใช้เสียงแจ้งเตือนที่ตั้งค่าไว้)
 // ===================================================
 
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatCurrency, formatRelativeTime, orderStatusLabels, orderStatusColors } from '@/lib/utils';
+import { playNotificationSoundById } from '@/components/NotificationSoundModal';
 import Swal from 'sweetalert2';
 
 interface DashboardData {
@@ -32,6 +33,9 @@ interface Order {
 
 interface Settings {
   soundEnabled: boolean;
+  notificationSound: number;
+  soundVolume: number;
+  soundDuration: number;
   notifyEnabled: boolean;
   showPrices: boolean;
 }
@@ -41,12 +45,20 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [notificationSound, setNotificationSound] = useState(1);
+  const [soundVolume, setSoundVolume] = useState(50);
+  const [soundDuration, setSoundDuration] = useState(100);
   const lastOrderCountRef = useRef<number>(0);
   const isFirstLoadRef = useRef<boolean>(true);
 
-  // ✅ แยก fetchData ออกมาไม่ใส่ใน useCallback เพื่อไม่ให้ re-create ทุกครั้ง
-  const fetchData = async () => {
+  // เล่นเสียงแจ้งเตือน
+  const playNotificationSound = useCallback(() => {
+    if (soundEnabled) {
+      playNotificationSoundById(notificationSound, soundVolume, soundDuration);
+    }
+  }, [soundEnabled, notificationSound, soundVolume, soundDuration]);
+
+  const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/dashboard');
       const result = await res.json();
@@ -67,7 +79,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [soundEnabled, playNotificationSound]);
 
   const fetchSettings = async () => {
     try {
@@ -76,26 +88,12 @@ export default function DashboardPage() {
       if (result.success) {
         setSettings(result.data);
         setSoundEnabled(result.data.soundEnabled);
+        setNotificationSound(result.data.notificationSound || 1);
+        setSoundVolume(result.data.soundVolume ?? 50);
+        setSoundDuration(result.data.soundDuration ?? 100);
       }
     } catch (error) {
       console.error('Fetch settings error:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-    fetchSettings();
-
-    // Poll for new orders every 5 seconds
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ✅ ใช้ [] เพื่อให้ run แค่ครั้งเดียว
-
-  const playNotificationSound = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
     }
   };
 
@@ -111,6 +109,17 @@ export default function DashboardPage() {
       }
     }
   };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    // Poll for new orders every 5 seconds
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
   const handleUpdateOrderStatus = async (orderId: number, status: string) => {
     try {
@@ -140,8 +149,20 @@ export default function DashboardPage() {
     }
   };
 
-  const toggleSound = () => {
-    setSoundEnabled(!soundEnabled);
+  const toggleSound = async () => {
+    const newSoundEnabled = !soundEnabled;
+    setSoundEnabled(newSoundEnabled);
+    
+    // บันทึกลง database
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ soundEnabled: newSoundEnabled }),
+      });
+    } catch (error) {
+      console.error('Save sound setting error:', error);
+    }
   };
 
   if (loading) {
@@ -154,9 +175,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Audio Element */}
-      <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -187,6 +205,10 @@ export default function DashboardPage() {
               </>
             )}
           </button>
+          {/* ลิงก์ไปตั้งค่าเสียง */}
+          <a href="/admin/settings" className="btn-outline btn-sm">
+            ⚙️ ตั้งค่าเสียง
+          </a>
         </div>
       </div>
 
@@ -260,7 +282,6 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">ออเดอร์ล่าสุด</h2>
-            {/* ✅ แก้ path ให้ถูกต้อง */}
             <a href="/admin/orders" className="text-primary-600 hover:text-primary-700 text-sm font-medium">
               ดูทั้งหมด →
             </a>

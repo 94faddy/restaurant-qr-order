@@ -1,7 +1,7 @@
 // ===================================================
 // FILE: route.ts
 // PATH: /restaurant-qr-order/src/app/api/settings/route.ts
-// DESCRIPTION: API สำหรับจัดการการตั้งค่าระบบ
+// DESCRIPTION: API สำหรับจัดการการตั้งค่าระบบ (รองรับ notificationSound, soundVolume, soundDuration)
 // ===================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,6 +20,9 @@ export async function GET() {
         data: {
           restaurantName: 'ร้านอาหาร QR Order',
           soundEnabled: true,
+          notificationSound: 1, // default เสียงแบบ 1
+          soundVolume: 50,      // default ความดัง 50%
+          soundDuration: 100,   // default ระยะเวลา 100%
           notifyEnabled: true,
           showPrices: true,
           isBuffetMode: false,
@@ -53,6 +56,9 @@ export async function PUT(request: NextRequest) {
       restaurantName,
       logo,
       soundEnabled,
+      notificationSound,
+      soundVolume,
+      soundDuration,
       notifyEnabled,
       showPrices,
       isBuffetMode,
@@ -68,6 +74,9 @@ export async function PUT(request: NextRequest) {
           restaurantName: restaurantName || 'ร้านอาหาร QR Order',
           logo,
           soundEnabled: soundEnabled !== false,
+          notificationSound: notificationSound || 1,
+          soundVolume: soundVolume ?? 50,
+          soundDuration: soundDuration ?? 100,
           notifyEnabled: notifyEnabled !== false,
           showPrices: showPrices !== false,
           isBuffetMode: isBuffetMode || false,
@@ -76,18 +85,23 @@ export async function PUT(request: NextRequest) {
         },
       });
     } else {
+      const updateData: Record<string, unknown> = {};
+      
+      if (restaurantName !== undefined) updateData.restaurantName = restaurantName;
+      if (logo !== undefined) updateData.logo = logo;
+      if (soundEnabled !== undefined) updateData.soundEnabled = soundEnabled;
+      if (notificationSound !== undefined) updateData.notificationSound = notificationSound;
+      if (soundVolume !== undefined) updateData.soundVolume = soundVolume;
+      if (soundDuration !== undefined) updateData.soundDuration = soundDuration;
+      if (notifyEnabled !== undefined) updateData.notifyEnabled = notifyEnabled;
+      if (showPrices !== undefined) updateData.showPrices = showPrices;
+      if (isBuffetMode !== undefined) updateData.isBuffetMode = isBuffetMode;
+      if (buffetPrice !== undefined) updateData.buffetPrice = buffetPrice ? parseFloat(buffetPrice) : null;
+      if (currency !== undefined) updateData.currency = currency;
+
       settings = await prisma.settings.update({
         where: { id: settings.id },
-        data: {
-          restaurantName,
-          logo,
-          soundEnabled,
-          notifyEnabled,
-          showPrices,
-          isBuffetMode,
-          buffetPrice: buffetPrice ? parseFloat(buffetPrice) : null,
-          currency,
-        },
+        data: updateData,
       });
     }
 

@@ -1,7 +1,7 @@
 // ===================================================
 // FILE: layout.tsx
 // PATH: /restaurant-qr-order/src/app/admin/layout.tsx
-// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด (พร้อม Notification Bell)
+// DESCRIPTION: Layout สำหรับหน้า Admin ทั้งหมด (ใช้เสียงแจ้งเตือนที่ตั้งค่าไว้)
 // ===================================================
 
 'use client';
@@ -10,7 +10,8 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Swal from 'sweetalert2';
-import { formatRelativeTime, formatCurrency, orderStatusLabels } from '@/lib/utils';
+import { formatRelativeTime, formatCurrency } from '@/lib/utils';
+import { playNotificationSoundById } from '@/components/NotificationSoundModal';
 
 interface AdminData {
   adminId: number;
@@ -27,6 +28,13 @@ interface OrderNotification {
   createdAt: string;
   table: { id: number; name: string };
   orderItems: { id: number; quantity: number; menuItem: { name: string } }[];
+}
+
+interface Settings {
+  soundEnabled: boolean;
+  notificationSound: number;
+  soundVolume: number;
+  soundDuration: number;
 }
 
 const menuItems = [
@@ -111,16 +119,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
-  // ✅ State สำหรับ Notification
+  // State สำหรับ Notification
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastNotificationCountRef = useRef<number>(0);
+  const isFirstLoadRef = useRef<boolean>(true);
 
   const isLoginPage = pathname === '/admin/login';
 
-  // ✅ Fetch pending orders สำหรับ notification
+  // เล่นเสียงแจ้งเตือน
+  const playNotificationSound = useCallback(() => {
+    if (settings?.soundEnabled) {
+      playNotificationSoundById(
+        settings.notificationSound || 1,
+        settings.soundVolume ?? 50,
+        settings.soundDuration ?? 100
+      );
+    }
+  }, [settings]);
+
+  // ดึงการตั้งค่า
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const result = await res.json();
+      if (result.success) {
+        setSettings(result.data);
+      }
+    } catch (error) {
+      console.error('Fetch settings error:', error);
+    }
+  }, []);
+
+  // Fetch pending orders สำหรับ notification
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await fetch('/api/orders?status=PENDING&limit=10');
@@ -129,25 +162,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (result.success) {
         const newCount = result.data.length;
         
-        // เล่นเสียงถ้ามี notification ใหม่
-        if (newCount > lastNotificationCountRef.current && lastNotificationCountRef.current !== 0) {
+        // เล่นเสียงถ้ามี notification ใหม่ (ข้ามครั้งแรก)
+        if (!isFirstLoadRef.current && newCount > lastNotificationCountRef.current && settings?.soundEnabled) {
           playNotificationSound();
         }
         
+        isFirstLoadRef.current = false;
         lastNotificationCountRef.current = newCount;
         setNotifications(result.data);
       }
     } catch (error) {
       console.error('Fetch notifications error:', error);
     }
-  }, []);
-
-  const playNotificationSound = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-    }
-  };
+  }, [settings, playNotificationSound]);
 
   useEffect(() => {
     if (isLoginPage) {
@@ -156,9 +183,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
 
     checkSession();
-  }, [isLoginPage]);
+    fetchSettings();
+  }, [isLoginPage, fetchSettings]);
 
-  // ✅ Poll notifications
+  // Poll notifications
   useEffect(() => {
     if (isLoginPage || !admin) return;
 
@@ -167,7 +195,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return () => clearInterval(interval);
   }, [isLoginPage, admin, fetchNotifications]);
 
-  // ✅ Click outside to close notification dropdown
+  // Click outside to close notification dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
@@ -216,8 +244,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   };
 
-  // ✅ ไปหน้า orders เมื่อคลิก notification
-  const handleNotificationClick = (orderId: number) => {
+  // ไปหน้า orders เมื่อคลิก notification
+  const handleNotificationClick = () => {
     setShowNotifications(false);
     router.push(`/admin/orders`);
   };
@@ -243,9 +271,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Audio Element */}
-      <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
-
       {/* Sidebar Overlay */}
       {sidebarOpen && (
         <div 
@@ -323,7 +348,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex-1 lg:flex-none" />
 
           <div className="flex items-center gap-4">
-            {/* ✅ Notification Bell with Dropdown */}
+            {/* Notification Bell with Dropdown */}
             <div className="relative" ref={notificationRef}>
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
@@ -344,7 +369,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 )}
               </button>
 
-              {/* ✅ Notification Dropdown */}
+              {/* Notification Dropdown */}
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden animate-scale-in">
                   <div className="p-4 border-b bg-gray-50">
@@ -359,7 +384,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                       notifications.map((notification) => (
                         <div
                           key={notification.id}
-                          onClick={() => handleNotificationClick(notification.id)}
+                          onClick={handleNotificationClick}
                           className="p-4 border-b hover:bg-primary-50 cursor-pointer transition-colors"
                         >
                           <div className="flex items-start gap-3">

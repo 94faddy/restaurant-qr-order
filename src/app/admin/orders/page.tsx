@@ -1,13 +1,14 @@
 // ===================================================
 // FILE: page.tsx
 // PATH: /restaurant-qr-order/src/app/admin/orders/page.tsx
-// DESCRIPTION: หน้าจัดการรายการสั่งซื้อ (สามารถยกเลิกรายการทีละรายการได้)
+// DESCRIPTION: หน้าจัดการรายการสั่งซื้อ (ใช้เสียงแจ้งเตือนที่ตั้งค่าไว้)
 // ===================================================
 
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatCurrency, formatRelativeTime, formatDate, orderStatusLabels, orderStatusColors } from '@/lib/utils';
+import { playNotificationSoundById } from '@/components/NotificationSoundModal';
 import Swal from 'sweetalert2';
 
 interface OrderItem {
@@ -31,6 +32,13 @@ interface Order {
   orderItems: OrderItem[];
 }
 
+interface Settings {
+  soundEnabled: boolean;
+  notificationSound: number;
+  soundVolume: number;
+  soundDuration: number;
+}
+
 type FilterStatus = 'all' | 'active' | 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED';
 
 export default function OrdersPage() {
@@ -38,15 +46,41 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>('active');
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [notificationSound, setNotificationSound] = useState(1);
+  const [soundVolume, setSoundVolume] = useState(50);
+  const [soundDuration, setSoundDuration] = useState(100);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastPendingCountRef = useRef<number>(0);
-  const selectedOrderIdRef = useRef<number | null>(null); // ✅ ใช้ ref แทน
+  const selectedOrderIdRef = useRef<number | null>(null);
+  const isFirstLoadRef = useRef<boolean>(true);
 
-  // ✅ Sync selectedOrder.id กับ ref
+  // Sync selectedOrder.id กับ ref
   useEffect(() => {
     selectedOrderIdRef.current = selectedOrder?.id ?? null;
   }, [selectedOrder]);
+
+  // ดึงการตั้งค่าเสียง
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data.success) {
+        setSoundEnabled(data.data.soundEnabled);
+        setNotificationSound(data.data.notificationSound || 1);
+        setSoundVolume(data.data.soundVolume ?? 50);
+        setSoundDuration(data.data.soundDuration ?? 100);
+      }
+    } catch (error) {
+      console.error('Fetch settings error:', error);
+    }
+  }, []);
+
+  // เล่นเสียงแจ้งเตือน
+  const playNotificationSound = useCallback(() => {
+    if (soundEnabled) {
+      playNotificationSoundById(notificationSound, soundVolume, soundDuration);
+    }
+  }, [soundEnabled, notificationSound, soundVolume, soundDuration]);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -61,14 +95,17 @@ export default function OrdersPage() {
       if (result.success) {
         const pendingCount = result.data.filter((o: Order) => o.status === 'PENDING').length;
         
-        if (pendingCount > lastPendingCountRef.current && soundEnabled) {
+        // เล่นเสียงเมื่อมี order ใหม่ (ข้ามครั้งแรก)
+        if (!isFirstLoadRef.current && pendingCount > lastPendingCountRef.current && soundEnabled) {
           playNotificationSound();
         }
+        
+        isFirstLoadRef.current = false;
         lastPendingCountRef.current = pendingCount;
         
         setOrders(result.data);
         
-        // ✅ อัพเดท selectedOrder โดยใช้ ref (ไม่ทำให้ useCallback สร้างใหม่)
+        // อัพเดท selectedOrder โดยใช้ ref
         if (selectedOrderIdRef.current) {
           const updated = result.data.find((o: Order) => o.id === selectedOrderIdRef.current);
           if (updated) {
@@ -81,20 +118,17 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, soundEnabled]); // ✅ ไม่มี selectedOrder ใน dependency แล้ว
+  }, [filter, soundEnabled, playNotificationSound]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
 
   useEffect(() => {
     fetchOrders();
     const interval = setInterval(fetchOrders, 5000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
-
-  const playNotificationSound = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-    }
-  };
 
   const handleUpdateStatus = async (orderId: number, status: string) => {
     try {
@@ -123,7 +157,7 @@ export default function OrdersPage() {
     }
   };
 
-  // ✅ ฟังก์ชันลบรายการอาหารทีละรายการ (พร้อมถามเหตุผล)
+  // ฟังก์ชันลบรายการอาหารทีละรายการ
   const handleDeleteOrderItem = async (orderId: number, itemId: number, itemName: string) => {
     const result = await Swal.fire({
       title: 'ยกเลิกรายการ?',
@@ -170,7 +204,6 @@ export default function OrdersPage() {
               timer: 1500,
               showConfirmButton: false,
             });
-            // อัพเดท selectedOrder ด้วยข้อมูลใหม่
             setSelectedOrder(data.data);
           }
           fetchOrders();
@@ -215,8 +248,8 @@ export default function OrdersPage() {
     }
   };
 
-  // ✅ ฟังก์ชันยกเลิก Order ทั้งหมด (พร้อมถามเหตุผล)
-  const handleCancelOrder = async (orderId: number, orderNumber?: string) => {
+  // ฟังก์ชันยกเลิก Order ทั้งหมด
+  const handleCancelOrder = async (orderId: number) => {
     const result = await Swal.fire({
       title: 'ยกเลิก Order ทั้งหมด?',
       html: `
@@ -264,6 +297,23 @@ export default function OrdersPage() {
     }
   };
 
+  // Toggle เสียงและบันทึกลง settings
+  const toggleSound = async () => {
+    const newSoundEnabled = !soundEnabled;
+    setSoundEnabled(newSoundEnabled);
+    
+    // บันทึกลง database
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ soundEnabled: newSoundEnabled }),
+      });
+    } catch (error) {
+      console.error('Save sound setting error:', error);
+    }
+  };
+
   const filterTabs: { value: FilterStatus; label: string; count?: number }[] = [
     { value: 'active', label: 'กำลังดำเนินการ', count: orders.filter(o => ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'].includes(o.status)).length },
     { value: 'PENDING', label: 'รอยืนยัน', count: orders.filter(o => o.status === 'PENDING').length },
@@ -277,20 +327,24 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
-      <audio ref={audioRef} src="/sounds/notification.mp3" preload="auto" />
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="page-title">รายการสั่งซื้อ</h1>
           <p className="text-gray-500 mt-1">จัดการออเดอร์จากลูกค้า</p>
         </div>
-        <button
-          onClick={() => setSoundEnabled(!soundEnabled)}
-          className={`btn ${soundEnabled ? 'btn-primary' : 'btn-ghost'}`}
-        >
-          {soundEnabled ? '🔔 เสียงเปิด' : '🔕 เสียงปิด'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleSound}
+            className={`btn ${soundEnabled ? 'btn-primary' : 'btn-ghost'}`}
+          >
+            {soundEnabled ? '🔔 เสียงเปิด' : '🔕 เสียงปิด'}
+          </button>
+          {/* ลิงก์ไปตั้งค่าเสียง */}
+          <a href="/admin/settings" className="btn-outline btn-sm">
+            ⚙️ ตั้งค่าเสียง
+          </a>
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -434,7 +488,7 @@ export default function OrdersPage() {
                 <span className="text-sm text-gray-500">{formatDate(selectedOrder.createdAt, 'long')}</span>
               </div>
 
-              {/* ✅ รายการอาหาร พร้อมปุ่มยกเลิกแต่ละรายการ */}
+              {/* รายการอาหาร พร้อมปุ่มยกเลิกแต่ละรายการ */}
               <div className="border rounded-lg divide-y">
                 {selectedOrder.orderItems.map((item) => (
                   <div key={item.id} className="p-3">
@@ -455,7 +509,7 @@ export default function OrdersPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{formatCurrency(item.totalPrice)}</p>
-                        {/* ✅ ปุ่มยกเลิกรายการ (แสดงเฉพาะสถานะที่ยังไม่เสร็จ) */}
+                        {/* ปุ่มยกเลิกรายการ */}
                         {['PENDING', 'CONFIRMED', 'PREPARING'].includes(selectedOrder.status) && (
                           <button
                             onClick={() => handleDeleteOrderItem(selectedOrder.id, item.id, item.menuItem.name)}

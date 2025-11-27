@@ -1,7 +1,7 @@
 // ===================================================
 // FILE: page.tsx
 // PATH: src/app/admin/settings/page.tsx
-// DESCRIPTION: หน้าตั้งค่าระบบ (พร้อม Image Cropper)
+// DESCRIPTION: หน้าตั้งค่าระบบ (พร้อม Image Cropper + Notification Sound Modal + Volume/Duration)
 // ===================================================
 
 'use client';
@@ -9,12 +9,16 @@
 import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import ImageCropper from '@/components/ImageCropper';
+import NotificationSoundModal, { playNotificationSoundById } from '@/components/NotificationSoundModal';
 
 interface Settings {
   id: number;
   restaurantName: string;
   logo: string | null;
   soundEnabled: boolean;
+  notificationSound: number;
+  soundVolume: number;
+  soundDuration: number;
   notifyEnabled: boolean;
   showPrices: boolean;
   isBuffetMode: boolean;
@@ -22,15 +26,32 @@ interface Settings {
   currency: string;
 }
 
+// ชื่อเสียงแจ้งเตือนสำหรับแสดงผล
+const soundNames: Record<number, string> = {
+  1: 'ดิง-ดอง 🔔',
+  2: 'ติ๊ด-ติ๊ด 📢',
+  3: 'ชิมมี่ ✨',
+  4: 'ป๊อป 💫',
+  5: 'ระฆัง 🛎️',
+  6: 'ไซเรน 🚨',
+  7: 'นกหวีด 🐦',
+  8: 'เมโลดี้ 🎵',
+  9: 'กลอง 🥁',
+  10: 'ฮาร์ป 🎶',
+};
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   
-  // ✅ State สำหรับ Image Cropper
+  // State สำหรับ Image Cropper
   const [showCropper, setShowCropper] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  
+  // State สำหรับ Notification Sound Modal
+  const [showSoundModal, setShowSoundModal] = useState(false);
 
   useEffect(() => {
     fetchSettings();
@@ -41,7 +62,12 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings');
       const data = await res.json();
       if (data.success) {
-        setSettings(data.data);
+        // ตั้งค่า default ถ้าไม่มีค่า
+        setSettings({
+          ...data.data,
+          soundVolume: data.data.soundVolume ?? 50,
+          soundDuration: data.data.soundDuration ?? 100,
+        });
       }
     } catch (error) {
       console.error('Fetch settings error:', error);
@@ -65,7 +91,7 @@ export default function SettingsPage() {
     }
   };
 
-  // ✅ เมื่อเลือกไฟล์ → แสดง Cropper
+  // เมื่อเลือกไฟล์ → แสดง Cropper
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -82,7 +108,7 @@ export default function SettingsPage() {
     e.target.value = '';
   };
 
-  // ✅ เมื่อ crop เสร็จ → upload รูป
+  // เมื่อ crop เสร็จ → upload รูป
   const handleCropComplete = async (croppedBlob: Blob) => {
     setShowCropper(false);
     setCropImageSrc(null);
@@ -164,6 +190,44 @@ export default function SettingsPage() {
     }
   };
 
+  // บันทึกเสียงแจ้งเตือน (รวม volume และ duration)
+  const handleSaveNotificationSound = async (soundId: number, volume: number, duration: number) => {
+    if (!settings) return;
+    
+    const updatedSettings = { 
+      ...settings, 
+      notificationSound: soundId,
+      soundVolume: volume,
+      soundDuration: duration,
+    };
+    setSettings(updatedSettings);
+    
+    const saved = await saveSettings(updatedSettings);
+    if (saved) {
+      Swal.fire({
+        icon: 'success',
+        title: 'บันทึกการตั้งค่าเสียงแล้ว',
+        html: `
+          <p>เสียง: ${soundNames[soundId]}</p>
+          <p>ความดัง: ${volume}% • ระยะเวลา: ${duration}%</p>
+        `,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    }
+  };
+
+  // ทดลองเล่นเสียงที่เลือกไว้
+  const handleTestCurrentSound = () => {
+    if (settings) {
+      playNotificationSoundById(
+        settings.notificationSound, 
+        settings.soundVolume, 
+        settings.soundDuration
+      );
+    }
+  };
+
   const handleSave = async () => {
     if (!settings) return;
 
@@ -221,7 +285,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* ✅ Image Cropper Modal */}
+      {/* Image Cropper Modal */}
       {showCropper && cropImageSrc && (
         <ImageCropper
           imageSrc={cropImageSrc}
@@ -231,6 +295,16 @@ export default function SettingsPage() {
           outputSize={{ width: 400, height: 400 }}
         />
       )}
+
+      {/* Notification Sound Modal (รองรับ volume/duration) */}
+      <NotificationSoundModal
+        isOpen={showSoundModal}
+        onClose={() => setShowSoundModal(false)}
+        currentSound={settings.notificationSound}
+        currentVolume={settings.soundVolume}
+        currentDuration={settings.soundDuration}
+        onSave={handleSaveNotificationSound}
+      />
 
       {/* Header */}
       <div>
@@ -332,6 +406,7 @@ export default function SettingsPage() {
         <h2 className="text-lg font-semibold text-gray-900 border-b pb-3">การแจ้งเตือน</h2>
         
         <div className="space-y-4">
+          {/* เสียงแจ้งเตือน On/Off */}
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">เสียงแจ้งเตือน</p>
@@ -348,6 +423,48 @@ export default function SettingsPage() {
             </label>
           </div>
 
+          {/* เลือกเสียงแจ้งเตือน + แสดง volume/duration */}
+          {settings.soundEnabled && (
+            <div className="p-4 bg-gray-50 rounded-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-900">รูปแบบเสียง</p>
+                  <p className="text-sm text-primary-600 mt-1">
+                    {soundNames[settings.notificationSound] || 'ดิง-ดอง 🔔'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={handleTestCurrentSound}
+                    className="btn-ghost btn-sm"
+                    title="ทดลองฟัง"
+                  >
+                    🔊 ทดลอง
+                  </button>
+                  <button 
+                    onClick={() => setShowSoundModal(true)}
+                    className="btn-primary btn-sm"
+                  >
+                    🎵 ตั้งค่าเสียง
+                  </button>
+                </div>
+              </div>
+              
+              {/* แสดงค่า volume และ duration */}
+              <div className="flex gap-4 text-sm text-gray-600">
+                <span className="flex items-center gap-1">
+                  <span>🔊</span>
+                  <span>ความดัง: <strong>{settings.soundVolume}%</strong></span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span>⏱️</span>
+                  <span>ระยะเวลา: <strong>{settings.soundDuration}%</strong></span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* การแจ้งเตือนเบราว์เซอร์ */}
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium text-gray-900">การแจ้งเตือนเบราว์เซอร์</p>

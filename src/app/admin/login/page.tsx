@@ -157,7 +157,7 @@ export default function AdminLoginPage() {
 
         {/* Footer */}
         <div className="mt-6 text-center text-xs text-secondary-400">
-          © 2024 Restaurant QR Order System
+          © 2025 Restaurant QR Order System
         </div>
       </div>
     </main>
